@@ -1,0 +1,180 @@
+"""
+Directory traversal and node construction.
+
+This module is entirely environment-agnostic. All environment-specific behaviour
+enters through the EnvironmentProfile. The profile determines which directories
+are excluded, which are collapsed, and which file extensions are included.
+
+Symlinks are never followed. A symlink to a directory is recorded as a leaf node
+and never descended into. A symlink to a file is recorded as a visible node.
+
+Output is deterministic: directory and file entries are sorted lexicographically
+at every level before any filtering or inclusion decision is made.
+
+Parent-before-child ordering is guaranteed: a directory node is always emitted
+before any of its children appear in the output list.
+"""
+
+from __future__ import annotations
+
+import heapq
+import os
+from pathlib import Path
+
+from tree.profiles import EnvironmentProfile
+from tree.shared_types import Node
+
+# Maximum number of entries shown inside a collapsed directory before a summary
+# node is emitted. This is a display cap - only this many entries are retained
+# in memory regardless of total directory size.
+COLLAPSED_DIR_DISPLAY_CAP: int = 20
+
+
+def scan(
+        root: Path,
+        profile: EnvironmentProfile,
+        output_path: Path,
+        extra_exclusions: frozenset[str],
+) -> list[Node]:
+    """
+    Traverse root and return an ordered list of Node objects.
+
+    Directories in profile.excluded_dirs or extra_exclusions are pruned entirely.
+    Directories in profile.collapsed_dirs are scanned shallowly via scan_collapsed.
+    Symlink directories are recorded as leaf nodes and never descended into.
+    The output file itself is excluded from results regardless of where it lives.
+
+    Traversal order is lexicographic at every level, guaranteed deterministic.
+    Parent-before-child ordering is guaranteed throughout the output list.
+    """
+    resolved_output = output_path.resolve()
+    all_excluded = profile.excluded_dirs | extra_exclusions
+    nodes: list[Node] = []
+
+    for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=False):
+        current = Path(dirpath)
+        depth = len(current.relative_to(root).parts)
+
+        # Sort in-place before any mutation so traversal order is deterministic.
+        dirnames.sort()
+
+        # Emit the current directory node before any of its children so that
+        # parent-before-child ordering is guaranteed throughout the output list.
+        # The root itself is not emitted - it is rendered as the tree header.
+        if depth > 0:
+            nodes.append(Node(path=current, depth=depth, is_dir=True))
+
+        # Classify each subdirectory. Build the keep list explicitly rather than
+        # removing entries one by one to avoid index-shifting bugs.
+        keep: list[str] = []
+
+        for name in dirnames:
+            child = current / name
+
+            if child.resolve() == resolved_output:
+                # The output path happens to be a directory - exclude silently.
+                continue
+
+            if os.path.islink(child):
+                # Record symlink directories as leaf nodes; never descend.
+                nodes.append(Node(
+                    path=child,
+                    depth=depth + 1,
+                    is_dir=True,
+                    is_symlink=True,
+                ))
+                continue
+
+            if name in all_excluded:
+                continue
+
+            if name in profile.collapsed_dirs:
+                # Emit the collapsed directory node before its shallow contents.
+                nodes.append(Node(path=child, depth=depth + 1, is_dir=True))
+                nodes.extend(scan_collapsed(child, depth=depth + 1))
+                continue
+
+            keep.append(name)
+
+        # Replace dirnames in-place so os.walk descends only into kept directories.
+        dirnames[:] = keep
+
+        # Include eligible files, sorted for determinism.
+        for name in sorted(filenames):
+            child = current / name
+
+            if child.resolve() == resolved_output:
+                continue
+
+            is_symlink = os.path.islink(child)
+
+            # Symlink files are structural facts in the tree, not content files.
+            # They are recorded unconditionally - their visibility must not depend
+            # on whether the symlink filename happens to satisfy extension filters.
+            # This mirrors the treatment of symlink directories above.
+            if not is_symlink:
+                if name not in profile.special_files and child.suffix not in profile.extensions:
+                    continue
+
+            nodes.append(Node(
+                path=child,
+                depth=depth + 1,
+                is_dir=False,
+                is_symlink=is_symlink,
+            ))
+
+    return nodes
+
+
+def scan_collapsed(dir_path: Path, depth: int) -> list[Node]:
+    """
+    Shallow-scan a collapsed directory, returning at most COLLAPSED_DIR_DISPLAY_CAP
+    entry nodes plus an optional summary node.
+
+    Memory is bounded independently of total directory size: only
+    COLLAPSED_DIR_DISPLAY_CAP entries are retained at any point. The directory is
+    iterated once using heapq.nsmallest to identify the lexicographically smallest
+    visible entries, and a second lightweight pass counts the total for the summary.
+
+    Both passes use os.scandir iterators and never materialise the full listing.
+    """
+    try:
+        # First pass: retain only the CAP lexicographically the smallest entries.
+        # heapq.nsmallest consumes the iterator in O(n log CAP) time, O(CAP) space.
+        smallest = heapq.nsmallest(
+            COLLAPSED_DIR_DISPLAY_CAP,
+            os.scandir(dir_path),
+            key=lambda e: e.name,
+        )
+    except PermissionError:
+        return []
+
+    # Second pass: count total entries. Re-opening the directory is a cheap
+    # syscall sequence with no Node allocation - avoids storing all DirEntry objects.
+    try:
+        total = sum(1 for _ in os.scandir(dir_path))
+    except PermissionError:
+        total = len(smallest)
+
+    nodes: list[Node] = []
+
+    for entry in smallest:
+        nodes.append(Node(
+            path=Path(entry.path),
+            depth=depth + 1,
+            is_dir=entry.is_dir(follow_symlinks=False),
+            is_symlink=entry.is_symlink(),
+            is_collapsed_entry=True,
+        ))
+
+    remainder = total - COLLAPSED_DIR_DISPLAY_CAP
+    if remainder > 0:
+        nodes.append(Node(
+            path=dir_path,
+            depth=depth + 1,
+            is_dir=False,
+            is_summary=True,
+            summary_label=f"… {remainder} more entries",
+        ))
+
+    return nodes
