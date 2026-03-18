@@ -139,7 +139,7 @@ def scan_collapsed(dir_path: Path, depth: int) -> list[Node]:
     Both passes use os.scandir iterators and never materialise the full listing.
     """
     try:
-        # First pass: retain only the CAP lexicographically the smallest entries.
+        # First pass: retain only the CAP lexicographically smallest entries.
         # heapq.nsmallest consumes the iterator in O(n log CAP) time, O(CAP) space.
         smallest = heapq.nsmallest(
             COLLAPSED_DIR_DISPLAY_CAP,
