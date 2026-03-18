@@ -48,7 +48,7 @@ def _has_extension_shallow(root: Path, suffix: str) -> bool:
     """
     try:
         entries = list(root.iterdir())
-    except PermissionError:
+    except OSError:
         return False
 
     for entry in entries:
@@ -59,7 +59,7 @@ def _has_extension_shallow(root: Path, suffix: str) -> bool:
                 for child in entry.iterdir():
                     if child.is_file() and child.suffix == suffix:
                         return True
-            except PermissionError:
+            except OSError:
                 continue
 
     return False
@@ -163,8 +163,10 @@ def detect(root: Path) -> DetectionResult:
     Never breaks ties by picking arbitrarily - ambiguity is always reported as UNKNOWN
     with LOW confidence so the caller can decide (e.g. prompt the user to pass --env).
     """
-    java_score = 0
-    web_score = 0
+    scores: dict[Environment, int] = {
+        Environment.JAVA: 0,
+        Environment.WEB: 0,
+    }
     matched: list[str] = []
 
     for evaluator in _CLUES:
@@ -172,12 +174,18 @@ def detect(root: Path) -> DetectionResult:
         if clue is None:
             continue
         matched.append(clue.description)
-        if clue.environment is Environment.JAVA:
-            java_score += clue.weight
-        elif clue.environment is Environment.WEB:
-            web_score += clue.weight
+        if clue.environment not in scores:
+            raise ValueError(
+                f"Unsupported clue environment in detection: {clue.environment!r}. "
+                "Update detect() and _decide() to handle this environment."
+            )
+        scores[clue.environment] += clue.weight
 
-    return _decide(java_score, web_score, matched)
+    return _decide(
+        java_score=scores[Environment.JAVA],
+        web_score=scores[Environment.WEB],
+        matched=matched,
+    )
 
 
 def _decide(java_score: int, web_score: int, matched: list[str]) -> DetectionResult:
