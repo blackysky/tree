@@ -7,12 +7,14 @@ Config, and calls the pipeline in sequence.
 
 Usage:
     python tree_cli.py [--root PATH] [--env {java,web}] [--output PATH]
-                   [--ascii] [--exclude DIR]
+                   [--ascii] [--exclude DIR] [--debug-detect]
+                   [--no-node-modules] [--json]
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -25,7 +27,7 @@ from tree.profiles import (
     UNKNOWN_PROFILE,
     WEB_PROFILE,
 )
-from tree.render import render_text, write_output
+from tree.render import render_json, render_text, write_output
 from tree.scan import scan
 
 
@@ -36,8 +38,9 @@ def main() -> None:
     if not root.is_dir():
         sys.exit(f"Error: root path does not exist or is not a directory: {root}")
 
+    default_filename = "Structure.json" if args.json else "Structure.txt"
     output_path = (
-        Path(args.output).resolve() if args.output else (root / "Structure.txt").resolve()
+        Path(args.output).resolve() if args.output else (root / default_filename).resolve()
     )
 
     # Ensure the output parent directory exists before running the pipeline.
@@ -56,6 +59,8 @@ def main() -> None:
     # its values are never rendered because env_overridden=True causes the header
     # to display "(manual override)" instead of the confidence label.
     if args.env is not None:
+        if args.debug_detect:
+            print("Detection skipped: --env override was provided.", file=sys.stderr)
         profile = _profile_for_name(args.env)
         detection_result = DetectionResult(
             environment=Environment.UNKNOWN,
@@ -67,8 +72,20 @@ def main() -> None:
         env_overridden = True
     else:
         detection_result = detect(root)
+        if args.debug_detect:
+            _print_debug_detect(detection_result)
         profile = _profile_for_detection(detection_result)
         env_overridden = False
+
+    # --no-node-modules: promote node_modules from collapsed to excluded.
+    # Both sets must be updated atomically via dataclasses.replace because
+    # EnvironmentProfile enforces disjointness between them in __post_init__.
+    if args.no_node_modules:
+        profile = dataclasses.replace(
+            profile,
+            collapsed_dirs=profile.collapsed_dirs - {"node_modules"},
+            excluded_dirs=profile.excluded_dirs | {"node_modules"},
+        )
 
     config = Config(
         root=root,
@@ -82,7 +99,7 @@ def main() -> None:
 
     nodes = scan(root, profile, output_path, extra_exclusions)
     nodes = annotate(nodes, profile)
-    text = render_text(nodes, config)
+    text = render_json(nodes, config) if args.json else render_text(nodes, config)
 
     try:
         write_output(text, config)
@@ -114,7 +131,10 @@ def _parse_args() -> argparse.Namespace:
         "--output",
         default=None,
         metavar="PATH",
-        help="Output file path (default: <root>/Structure.txt).",
+        help=(
+            "Output file path. Defaults to <root>/Structure.txt, "
+            "or <root>/Structure.json when --json is active."
+        ),
     )
     parser.add_argument(
         "--ascii",
@@ -127,7 +147,45 @@ def _parse_args() -> argparse.Namespace:
         metavar="DIR",
         help="Additional directory name to exclude. Repeatable.",
     )
+    parser.add_argument(
+        "--debug-detect",
+        action="store_true",
+        default=False,
+        help="Print environment detection detail to stderr. No effect on output file.",
+    )
+    parser.add_argument(
+        "--no-node-modules",
+        action="store_true",
+        default=False,
+        help="Exclude node_modules entirely instead of collapsing it. Web profile only.",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        default=False,
+        help="Write JSON output instead of plain text. Default filename becomes Structure.json.",
+    )
     return parser.parse_args()
+
+
+def _print_debug_detect(result: DetectionResult) -> None:
+    """
+    Print detection detail to stderr.
+
+    Covers: per-environment scores, confidence level, and each clue that fired.
+    Called only when --debug-detect is active and detection actually ran.
+    Sentinel results (produced when --env is used) are never passed here.
+    """
+    print("Detection detail:", file=sys.stderr)
+    print(f"  java score : {result.java_score}", file=sys.stderr)
+    print(f"  web score  : {result.web_score}", file=sys.stderr)
+    print(f"  confidence : {result.confidence.name.lower()}", file=sys.stderr)
+    if result.clues_matched:
+        print("  clues matched:", file=sys.stderr)
+        for clue in result.clues_matched:
+            print(f"    - {clue}", file=sys.stderr)
+    else:
+        print("  clues matched: none", file=sys.stderr)
 
 
 def _profile_for_name(name: str) -> EnvironmentProfile:
