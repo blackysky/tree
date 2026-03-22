@@ -11,9 +11,9 @@ The annotator owns all file I/O. For each eligible node it:
 
   1. Checks structural eligibility (ineligible nodes pass through unchanged).
   2. Skips binary extensions without touching the filesystem.
-  3. Stats the file; annotates [empty] immediately if size is zero and stops.
-  4. Determines which rules can possibly apply based on the file extension.
+  3. Determines which rules can possibly apply based on the file extension.
      If no rule matches the extension, the file is not opened.
+  4. Stats the file; annotates [empty] immediately if size is zero and stops.
   5. Reads the file content exactly once and passes it to every applicable rule.
   6. Accumulates all returned labels onto node.annotations in rule-declaration order.
 
@@ -85,17 +85,20 @@ _HOOK_RE = re.compile(
     r"(?:^|\n)\s*export\s+(?:default\s+)?(?:function|const)\s+(use[A-Z][A-Za-z0-9_]*)"
 )
 
-# Extensions that each rule applies to. Used before any file read to determine
-# whether reading is necessary at all. Must stay in sync with the rules below.
+# Extensions that each rule applies to. Used by _rule_applies before any file
+# read to determine whether a rule can possibly produce output for this suffix.
+# Must stay in sync with the rule functions below.
 _JAVA_EXTENSIONS: frozenset[str] = frozenset({".java"})
 _WEB_HOOK_EXTENSIONS: frozenset[str] = frozenset({".ts", ".tsx"})
 _WEB_COMPONENT_EXTENSIONS: frozenset[str] = frozenset({".tsx"})
 
-# All extensions handled by at least one rule function. Any file whose extension
-# is not in this set will never be opened, regardless of which rules are active.
-_ANNOTATABLE_EXTENSIONS: frozenset[str] = (
-        _JAVA_EXTENSIONS | _WEB_HOOK_EXTENSIONS | _WEB_COMPONENT_EXTENSIONS
-)
+# Maps each known rule to the extensions it applies to. Defined at module level
+# so it is built once rather than on every _rule_applies call, and lives
+# alongside the other extension constants where it is easy to maintain.
+# Unknown rules (absent from this map) are conservatively treated as applicable.
+# Forward references are resolved at module load time after all rule functions
+# are defined; see the assignment at the bottom of this module.
+_RULE_EXTENSION_MAP: dict[AnnotationRule, frozenset[str]]
 
 # File extensions whose content is binary or non-text; never opened for annotation.
 _BINARY_EXTENSIONS: frozenset[str] = frozenset({
@@ -193,17 +196,12 @@ def _rule_applies(rule: AnnotationRule, suffix: str) -> bool:
     """
     Return True if the given rule can possibly produce annotations for this suffix.
 
-    Maps each known rule function to its applicable extension set. Unknown rules
-    (e.g. future custom rules) are conservatively treated as applicable so they
-    always run. This keeps the filter correct-by-default when new rules are added.
+    Consults _RULE_EXTENSION_MAP, which is built once at module load time.
+    Unknown rules (e.g. future custom rules) are conservatively treated as
+    applicable so they always run. This keeps the filter correct-by-default
+    when new rules are added without updating the map.
     """
-    known: dict[AnnotationRule, frozenset[str]] = {
-        java_type_rule: _JAVA_EXTENSIONS,
-        java_comment_rule: _JAVA_EXTENSIONS,
-        web_component_rule: _WEB_COMPONENT_EXTENSIONS,
-        web_hook_rule: _WEB_HOOK_EXTENSIONS,
-    }
-    applicable_extensions = known.get(rule)
+    applicable_extensions = _RULE_EXTENSION_MAP.get(rule)
     if applicable_extensions is None:
         return True  # Unknown rule: conservatively allow it to run.
     return suffix in applicable_extensions
@@ -334,3 +332,17 @@ def web_hook_rule(path: Path, content: str) -> list[str]:
         return ["hook"]
 
     return []
+
+
+# ---------------------------------------------------------------------------
+# Rule-to-extension map (assigned after rule functions are defined)
+# ---------------------------------------------------------------------------
+
+# Populated here rather than at the declaration site because the rule
+# functions must exist before they can be used as dict keys.
+_RULE_EXTENSION_MAP = {
+    java_type_rule: _JAVA_EXTENSIONS,
+    java_comment_rule: _JAVA_EXTENSIONS,
+    web_component_rule: _WEB_COMPONENT_EXTENSIONS,
+    web_hook_rule: _WEB_HOOK_EXTENSIONS,
+}
