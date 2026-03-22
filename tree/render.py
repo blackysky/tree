@@ -63,7 +63,7 @@ def render_text(nodes: list[Node], config: Config) -> str:
     Build the full output text for the given node list and configuration.
 
     Returns the complete string including header and tree body, separated by
-    a blank line. Does not write to disk - the caller (tree.py) handles that.
+    a blank line. Does not write to disk - the caller (tree_cli.py) handles that.
 
     Output is fully deterministic: no timestamps or run-specific data appear.
     """

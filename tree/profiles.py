@@ -13,7 +13,7 @@ Import structure:
 
 This means profiles.py -> annotate.py is a real runtime import, but
 annotate.py -> profiles.py is type-checker-only, keeping the graph acyclic.
-tree.py performs no rule injection; profiles are fully assembled at import time.
+tree_cli.py performs no rule injection; profiles are fully assembled at import time.
 """
 
 from __future__ import annotations

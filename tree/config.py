@@ -3,7 +3,7 @@ Core configuration types for the Tree tool.
 
 Contains only data definitions - no logic, no I/O, no filesystem access.
 
-Config is constructed once in tree.py and flows through the entire pipeline
+Config is constructed once in tree_cli.py and flows through the entire pipeline
 unchanged. No downstream module mutates it.
 """
 

@@ -6,7 +6,7 @@ under tree/. This file resolves arguments, selects a profile, constructs
 Config, and calls the pipeline in sequence.
 
 Usage:
-    python tree.py [--root PATH] [--env {java,web}] [--output PATH]
+    python tree_cli.py [--root PATH] [--env {java,web}] [--output PATH]
                    [--ascii] [--exclude DIR]
 """
 
