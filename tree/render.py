@@ -10,7 +10,7 @@ Rendering relies on three guarantees established by the scanning stage and the N
   - node.depth is the absolute depth from root (root children = depth 1).
   - The root node itself is not in the node list.
 
-Output structure:
+Output structure (text):
   - A two-line metadata header (Project, Environment).
   - A blank separator line.
   - The tree body, whose first line is always root.name + "/", followed
@@ -26,18 +26,35 @@ A set of open_depths tracks which depth columns still have pending siblings
 below the current rendering position, driving the pipe vs space choice for
 each indentation column.
 
+Output structure (JSON):
+  - A top-level object with project path, environment metadata, and a root
+    node whose children mirror the scanned tree hierarchy.
+  - Hierarchy is reconstructed from the flat node list using a depth stack
+    in a single O(n) pass. No recursion required.
+
 Output is fully deterministic: no timestamps or run-specific data appear in
-the rendered text. Identical input always produces identical output.
+either format. Identical input always produces identical output.
 """
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
+from tree.config import Environment
 from tree.shared_types import Node
 
 if TYPE_CHECKING:
     from tree.config import Config
+
+# Canonical machine-readable identifiers for each environment.
+# Keyed on the Environment enum so the mapping is stable regardless of how
+# EnvironmentProfile.name (a display label) might change in future profiles.
+_ENV_NAME: dict[Environment, str] = {
+    Environment.JAVA: "java",
+    Environment.WEB: "web",
+    Environment.UNKNOWN: "unknown",
+}
 
 # ---------------------------------------------------------------------------
 # Tree drawing characters
@@ -49,7 +66,7 @@ _UNICODE_PIPE = "│   "
 _UNICODE_SPACE = "    "
 
 _ASCII_BRANCH = "+-- "
-_ASCII_LAST = "+-- "  # ASCII mode uses the same character for both
+_ASCII_LAST = "+-- "
 _ASCII_PIPE = "|   "
 _ASCII_SPACE = "    "
 
@@ -80,6 +97,135 @@ def write_output(text: str, config: Config) -> None:
     Raises OSError on failure - the caller handles error reporting.
     """
     config.output_path.write_text(text, encoding="utf-8", newline="\n")
+
+
+def render_json(nodes: list[Node], config: Config) -> str:
+    """
+    Build a hierarchical JSON representation of the scanned project tree.
+
+    Returns a formatted JSON string. Does not write to disk - the caller
+    handles that via write_output(), which is reused unchanged.
+
+    Hierarchy reconstruction
+    ------------------------
+    Nodes arrive in parent-before-child order with absolute depth values.
+    A stack of (depth, children_list) pairs tracks the current ancestry chain.
+    The root node is pre-seeded at depth 0. For each node:
+
+      1. Pop the stack until the top entry's depth is strictly less than the
+         current node's depth - that entry is the current node's parent.
+      2. Build the node dict and append it to the parent's children list.
+      3. If the node is a traversable directory (not a collapsed entry or
+         summary), push (node.depth, node_dict["children"]) so that
+         subsequent deeper nodes attach to it.
+
+    Collapsed entries and summary nodes are always leaves - they are never
+    pushed onto the stack regardless of their is_dir value.
+
+    Environment block
+    -----------------
+    name:            stable lowercase identifier from the _ENV_NAME mapping.
+                     When detection ran, derived from config.detection_result.environment.
+                     When --env was used, the sentinel DetectionResult holds
+                     Environment.UNKNOWN regardless of the chosen profile, so a
+                     reverse lookup via _ENV_NAME against the profile's display
+                     name is used instead.
+    display_name:    config.profile.name as-is (human-readable label).
+    manual_override: config.env_overridden.
+    confidence:      omitted entirely when manual_override is True - detection
+                     did not run so emitting a confidence value would be
+                     structurally dishonest.
+
+    Determinism
+    -----------
+    Input order is preserved. Nothing is sorted. Output is deterministic
+    given identical input, matching the guarantee of render_text().
+    """
+    # Derive the stable machine name from the Environment enum where possible.
+    # When detection ran, config.detection_result.environment is authoritative.
+    # When --env was used, the sentinel holds Environment.UNKNOWN regardless of
+    # the chosen profile, so fall back to a reverse lookup via _ENV_NAME using
+    # the profile's display name. This keeps the mapping canonical in all cases.
+    if not config.env_overridden:
+        env_enum = config.detection_result.environment
+    else:
+        _name_to_env = {v: k for k, v in _ENV_NAME.items()}
+        env_enum = _name_to_env.get(config.profile.name.lower(), Environment.UNKNOWN)
+
+    env_block: dict = {
+        "name": _ENV_NAME[env_enum],
+        "display_name": config.profile.name,
+        "manual_override": config.env_overridden,
+    }
+    if not config.env_overridden:
+        env_block["confidence"] = config.detection_result.confidence.name.lower()
+
+    root_children: list[dict] = []
+    document: dict = {
+        "project": str(config.root),
+        "environment": env_block,
+        "root": {
+            "name": config.root.name,
+            "type": "directory",
+            "children": root_children,
+        },
+    }
+
+    # Stack entries: (depth, children_list_of_that_node).
+    # The root is pre-seeded at depth 0 so all depth-1 nodes attach to it.
+    stack: list[tuple[int, list[dict]]] = [(0, root_children)]
+
+    for node in nodes:
+        # Pop until the parent depth is strictly less than this node's depth.
+        while stack[-1][0] >= node.depth:
+            stack.pop()
+
+        parent_children = stack[-1][1]
+        node_dict = _build_node_dict(node)
+        parent_children.append(node_dict)
+
+        # Only traversable directories are pushed; collapsed entries and
+        # summary nodes are structural leaves and never become parents.
+        if node.is_dir and not node.is_collapsed_entry and not node.is_summary:
+            stack.append((node.depth, node_dict["children"]))
+
+    return json.dumps(document, ensure_ascii=False, indent=2)
+
+
+def _build_node_dict(node: Node) -> dict:
+    """
+    Produce the JSON dict for a single node.
+
+    Summary nodes:         {"type": "summary", "label": "..."}
+    Directory nodes:       {"name": ..., "type": "directory", "children": [...]}
+                           + "symlink": true  if symlink
+                           + "collapsed": true  if collapsed entry
+    File nodes:            {"name": ..., "type": "file", "annotations": [...]}
+                           + "symlink": true  if symlink
+                           + "collapsed": true  if collapsed entry
+
+    "children" is initialised to an empty list for all directory nodes.
+    Collapsed directory entries receive "children" too - they are typed as
+    directories but are leaves in the JSON tree (never pushed onto the stack).
+    """
+    if node.is_summary:
+        return {"type": "summary", "label": node.summary_label}
+
+    node_type = "directory" if node.is_dir else "file"
+    result: dict = {"name": node.path.name, "type": node_type}
+
+    if node.is_symlink:
+        result["symlink"] = True
+
+    if node.is_collapsed_entry:
+        result["collapsed"] = True
+
+    if node.is_dir:
+        result["children"] = []
+    else:
+        result["annotations"] = list(node.annotations)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +279,8 @@ def _build_tree(nodes: list[Node], config: Config) -> str:
         # A one-step lookahead is insufficient: the immediately following node
         # may be a child of the current node (deeper), not a sibling.
         # Scan forward to find the first subsequent node at depth <= current:
-        #   - if none exists          -> current node is last
-        #   - if that node is deeper  -> cannot happen (we stop at <=)
-        #   - if that node is equal   -> a sibling follows; not last
+        #   - if none exists            -> current node is last
+        #   - if that node is equal     -> a sibling follows; not last
         #   - if that node is shallower -> parent closes; current node is last
         is_last = True
         for j in range(i + 1, len(nodes)):
