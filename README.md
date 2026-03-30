@@ -194,9 +194,10 @@ File annotations are heuristic classifiers, not static analysis.
   comment is still detected. This allows a fully-commented file to receive
   both a type label and `[commented]`.
 
-- `[commented]`: applied when at least 80% of non-blank lines in a `.java`
-  file start with a comment marker (`//`, `*`, `/*`, `*/`). Heuristic - not
-  a guarantee of complete comment coverage.
+- `[commented]`: applied when at most 5% of non-blank lines in a `.java`
+  file are active code (i.e. do not start with `//`, `*`, `/*`, or `*/`).
+  Signals near-total absence of real statements, not merely heavy Javadoc.
+  Heuristic - not a guarantee of complete comment coverage.
 
 - `[component]`: applied to `.tsx` files that declare a capitalised function
   or const and contain a JSX return expression. Conservative - files that
