@@ -11,8 +11,8 @@ The annotator owns all file I/O. For each eligible node it:
 
   1. Checks structural eligibility (ineligible nodes pass through unchanged).
   2. Skips binary extensions without touching the filesystem.
-  3. Determines which rules can possibly apply based on the file extension.
-     If no rule matches the extension, the file is not opened.
+  3. Looks up applicable rules via a precomputed dispatch map (suffix -> rules).
+     If no rules apply, the file is not opened.
   4. Stats the file; annotates [empty] immediately if size is zero and stops.
   5. Reads the file content exactly once and passes it to every applicable rule.
   6. Accumulates all returned labels onto node.annotations in rule-declaration order.
@@ -85,17 +85,16 @@ _HOOK_RE = re.compile(
     r"(?:^|\n)\s*export\s+(?:default\s+)?(?:function|const)\s+(use[A-Z][A-Za-z0-9_]*)"
 )
 
-# Extensions that each rule applies to. Used by _rule_applies before any file
-# read to determine whether a rule can possibly produce output for this suffix.
-# Must stay in sync with the rule functions below.
+# Extensions that each rule applies to. Must stay in sync with the rule functions below.
 _JAVA_EXTENSIONS: frozenset[str] = frozenset({".java"})
 _WEB_HOOK_EXTENSIONS: frozenset[str] = frozenset({".ts", ".tsx"})
 _WEB_COMPONENT_EXTENSIONS: frozenset[str] = frozenset({".tsx"})
 
 # Maps each known rule to the extensions it applies to. Defined at module level
-# so it is built once rather than on every _rule_applies call, and lives
-# alongside the other extension constants where it is easy to maintain.
-# Unknown rules (absent from this map) are conservatively treated as applicable.
+# so it is available to _build_dispatch_map without reconstruction on each call.
+# Unknown rules (absent from this map) are conservatively treated as applicable
+# to every suffix - they are included in every known suffix entry and used as
+# the fallback for unknown suffixes in the dispatch map.
 # Forward references are resolved at module load time after all rule functions
 # are defined; see the assignment at the bottom of this module.
 _RULE_EXTENSION_MAP: dict[AnnotationRule, frozenset[str]]
@@ -110,6 +109,69 @@ _BINARY_EXTENSIONS: frozenset[str] = frozenset({
 
 
 # ---------------------------------------------------------------------------
+# Dispatch map construction
+# ---------------------------------------------------------------------------
+
+def _build_dispatch_map(
+        rules: tuple[AnnotationRule, ...],
+) -> tuple[dict[str, tuple[AnnotationRule, ...]], tuple[AnnotationRule, ...]]:
+    """
+    Precompute a suffix -> applicable rules mapping for the given rule set.
+
+    Returns two values:
+      dispatch   - maps each file suffix to the ordered tuple of rules that can
+                   produce output for it. Declaration order from profile.annotation_rules
+                   is preserved exactly within every suffix entry.
+      always_run - rules absent from _RULE_EXTENSION_MAP; these are conservatively
+                   treated as applicable to every suffix and serve as the fallback
+                   for suffixes not present in the dispatch map.
+
+    Construction is O(R * S) where R is the number of rules and S is the number
+    of distinct suffixes covered by those rules - both negligibly small in practice.
+    The map is built once per annotate() call and reused for every eligible node.
+
+    Declaration order guarantee
+    ---------------------------
+    Building per-suffix lists by grouping rules and then merging would place all
+    unknown rules after all known rules, violating original order when unknown and
+    known rules are interleaved in the profile. Instead, construction proceeds in
+    two passes:
+
+      Pass 1 - collect the set of relevant suffixes and identify unknown rules.
+      Pass 2 - for each suffix, iterate rules once in declaration order, including
+               a rule iff it is unknown OR its extension set contains that suffix.
+
+    This is equivalent to what the previous per-file filter produced, but the work
+    is done once rather than once per file.
+    """
+    # Pass 1: collect all suffixes that at least one known rule covers, and
+    # identify which rules are unknown (absent from _RULE_EXTENSION_MAP).
+    relevant_suffixes: set[str] = set()
+    always_run: list[AnnotationRule] = []
+
+    for rule in rules:
+        extensions = _RULE_EXTENSION_MAP.get(rule)
+        if extensions is None:
+            always_run.append(rule)
+        else:
+            relevant_suffixes.update(extensions)
+
+    # Pass 2: for each relevant suffix, walk rules in declaration order and
+    # include the rule if it applies to that suffix or is an unknown rule.
+    # This is the only construction path that guarantees original order is
+    # preserved when known and unknown rules are interleaved.
+    dispatch: dict[str, tuple[AnnotationRule, ...]] = {
+        suffix: tuple(
+            rule for rule in rules
+            if (ext := _RULE_EXTENSION_MAP.get(rule)) is None or suffix in ext
+        )
+        for suffix in relevant_suffixes
+    }
+
+    return dispatch, tuple(always_run)
+
+
+# ---------------------------------------------------------------------------
 # Annotation pipeline
 # ---------------------------------------------------------------------------
 
@@ -120,15 +182,20 @@ def annotate(nodes: list[Node], profile: EnvironmentProfile) -> list[Node]:
     Eligible nodes: regular files that are not symlinks, collapsed entries,
     or summary nodes. All other nodes pass through unchanged.
 
+    Builds a dispatch map once before iterating nodes so that per-file rule
+    selection is a single dict lookup rather than a filtered scan of all rules.
+
     Returns the same list with annotations populated where applicable.
     """
     if not profile.annotation_rules:
         return nodes
 
+    dispatch, always_run = _build_dispatch_map(profile.annotation_rules)
+
     for node in nodes:
         if not _is_eligible(node):
             continue
-        _annotate_node(node, profile.annotation_rules)
+        _annotate_node(node, dispatch, always_run)
 
     return nodes
 
@@ -143,14 +210,20 @@ def _is_eligible(node: Node) -> bool:
     )
 
 
-def _annotate_node(node: Node, rules: tuple[AnnotationRule, ...]) -> None:
+def _annotate_node(
+        node: Node,
+        dispatch: dict[str, tuple[AnnotationRule, ...]],
+        always_run: tuple[AnnotationRule, ...],
+) -> None:
     """
     Run applicable rules against a single eligible node, accumulating annotations.
 
     Extension-based filtering happens before any filesystem access:
       - Binary extensions are skipped immediately.
-      - Only rules whose applicable extensions match the file's suffix are retained.
-      - If no rules remain, the file is not opened.
+      - Applicable rules are resolved via a single dict lookup into the precomputed
+        dispatch map. If the suffix is absent from the map, always_run rules are used
+        as the fallback (these are rules not registered in _RULE_EXTENSION_MAP).
+      - If no rules apply, the file is not opened.
 
     Empty-file detection is a pipeline-level shortcut: if the file is zero bytes,
     [empty] is recorded and no rules run. This avoids reading empty files and
@@ -164,10 +237,10 @@ def _annotate_node(node: Node, rules: tuple[AnnotationRule, ...]) -> None:
     if suffix in _BINARY_EXTENSIONS:
         return
 
-    # Retain only rules that could possibly apply to this file's extension.
-    # This cheap filter prevents opening files that no active rule cares about
-    # (e.g. .css, .html, .json, .md in the Web profile).
-    applicable = [r for r in rules if _rule_applies(r, suffix)]
+    # Single dict lookup replaces the per-file rule filter loop.
+    # Falls back to always_run for suffixes absent from the dispatch map,
+    # ensuring unknown rules (not in _RULE_EXTENSION_MAP) still fire.
+    applicable = dispatch.get(suffix) or always_run
     if not applicable:
         return
 
@@ -190,21 +263,6 @@ def _annotate_node(node: Node, rules: tuple[AnnotationRule, ...]) -> None:
 
     for rule in applicable:
         node.annotations.extend(rule(node.path, content))
-
-
-def _rule_applies(rule: AnnotationRule, suffix: str) -> bool:
-    """
-    Return True if the given rule can possibly produce annotations for this suffix.
-
-    Consults _RULE_EXTENSION_MAP, which is built once at module load time.
-    Unknown rules (e.g. future custom rules) are conservatively treated as
-    applicable so they always run. This keeps the filter correct-by-default
-    when new rules are added without updating the map.
-    """
-    applicable_extensions = _RULE_EXTENSION_MAP.get(rule)
-    if applicable_extensions is None:
-        return True  # Unknown rule: conservatively allow it to run.
-    return suffix in applicable_extensions
 
 
 # ---------------------------------------------------------------------------

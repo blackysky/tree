@@ -16,11 +16,12 @@ Output structure (text):
   - The tree body, whose first line is always root.name + "/", followed
     by one line per node in the list.
 
-Branch markers are chosen per-node by scanning forward to find the first
-subsequent node at depth <= current. If that node is shallower, or none
-exists, the current node is the last child of its parent. This correctly
-handles directory nodes whose immediately following node is a child (deeper),
-not a sibling.
+Branch markers are chosen from precomputed last-child information.
+
+Last-child status is resolved in a single O(n) forward pass before rendering:
+each node remains pending until the first later node at depth <= its own depth
+is encountered. A later node at the same depth makes it non-last; a shallower
+node makes it last. Nodes left unresolved at the end are also last.
 
 A set of open_depths tracks which depth columns still have pending siblings
 below the current rendering position, driving the pipe vs space choice for
@@ -265,6 +266,38 @@ def _build_tree(nodes: list[Node], config: Config) -> str:
     pipe = _ASCII_PIPE if use_ascii else _UNICODE_PIPE
     space = _ASCII_SPACE if use_ascii else _UNICODE_SPACE
 
+    # Precompute is_last for every node in a single O(n) forward pass.
+    #
+    # A node at index i (depth d) is the last child of its parent iff the
+    # first subsequent node at depth <= d is strictly shallower than d, or
+    # no such node exists. A later node at the same depth only matters if it
+    # arrives before the tree closes back to a shallower level; once a
+    # shallower node is encountered the parent scope has closed and any
+    # further same-depth nodes belong to a different parent entirely.
+    #
+    # A stack of unresolved indices drives the pass. When node j (depth d_j)
+    # is processed, it is the first-later-node-at-depth-<= answer for every
+    # pending node whose depth >= d_j:
+    #
+    #   pending depth > d_j  ->  first later node is shallower  ->  is_last
+    #   pending depth == d_j ->  first later node is a sibling  ->  not last
+    #
+    # Each index is pushed once and popped once: O(n) total.
+    n = len(nodes)
+    is_last_flags: list[bool] = [False] * n
+    # Stack of node indices whose is_last value has not yet been resolved.
+    pending: list[int] = []
+    for j in range(n):
+        d_j = nodes[j].depth
+        while pending and nodes[pending[-1]].depth >= d_j:
+            i = pending.pop()
+            is_last_flags[i] = nodes[i].depth > d_j  # shallower next -> last
+        pending.append(j)
+    # Nodes still on the stack have no subsequent node at depth <= their own;
+    # the tree closes above them with no sibling following.
+    for i in pending:
+        is_last_flags[i] = True
+
     lines: list[str] = [config.root.name + "/"]
 
     # open_depths: the set of depths that still have pending siblings below
@@ -274,22 +307,10 @@ def _build_tree(nodes: list[Node], config: Config) -> str:
 
     for i, node in enumerate(nodes):
         depth = node.depth
-
-        # Determine whether this node is the last child of its parent.
-        # A one-step lookahead is insufficient: the immediately following node
-        # may be a child of the current node (deeper), not a sibling.
-        # Scan forward to find the first subsequent node at depth <= current:
-        #   - if none exists            -> current node is last
-        #   - if that node is equal     -> a sibling follows; not last
-        #   - if that node is shallower -> parent closes; current node is last
-        is_last = True
-        for j in range(i + 1, len(nodes)):
-            if nodes[j].depth <= depth:
-                is_last = nodes[j].depth < depth
-                break
+        node_is_last = is_last_flags[i]
 
         # Update open_depths for this depth column.
-        if is_last:
+        if node_is_last:
             open_depths.discard(depth)
         else:
             open_depths.add(depth)
@@ -301,7 +322,7 @@ def _build_tree(nodes: list[Node], config: Config) -> str:
             for d in range(1, depth)
         )
 
-        lines.append(prefix + (last if is_last else branch) + _format_label(node))
+        lines.append(prefix + (last if node_is_last else branch) + _format_label(node))
 
     return "\n".join(lines) + "\n"
 
