@@ -48,9 +48,11 @@ if TYPE_CHECKING:
 # Constants
 # ---------------------------------------------------------------------------
 
-# Proportion of non-blank lines that must be comment lines for [commented].
-# Heuristic - not a guarantee of full comment coverage.
-COMMENT_THRESHOLD: float = 0.8
+# Maximum proportion of non-blank lines that may be active code lines for a
+# file to be considered [commented]. A file is flagged only when it contains
+# almost no real statements - not merely because it has a lot of Javadoc.
+# At 0.05 a file needs fewer than 1 code line per 20 non-blank lines to trigger.
+ACTIVE_CODE_THRESHOLD: float = 0.05
 
 # Line prefixes that count as comment lines in Java source.
 _JAVA_COMMENT_PREFIXES: tuple[str, ...] = ("//", "*", "/*", "*/")
@@ -323,15 +325,16 @@ def java_type_rule(path: Path, content: str) -> list[str]:
 
 def java_comment_rule(path: Path, content: str) -> list[str]:
     """
-    Return [commented] if the file appears to be predominantly commented.
+    Return [commented] if the file contains almost no active code lines.
 
-    Strips blank lines, then checks whether the proportion of comment lines
-    meets or exceeds COMMENT_THRESHOLD. Heuristic only - not a guarantee of
-    full comment coverage.
+    The signal is the near-absence of real statements, not the presence of
+    many comment lines. A thoroughly Javadoc-documented file is not commented
+    out - it just has good documentation. The check passes only when the
+    proportion of non-blank lines that are not comment markers is at or
+    below ACTIVE_CODE_THRESHOLD (default 5%).
 
-    This rule is independent of java_type_rule. A file may receive [commented]
-    together with a type label such as [interface] if the comment ratio is
-    met and a declaration keyword is also present.
+    Heuristic only - not a guarantee. Independent of java_type_rule; both
+    may fire on the same file when a declaration keyword appears inside a comment.
 
     Returns [] if the file is not a .java file or the threshold is not met.
     """
@@ -342,10 +345,10 @@ def java_comment_rule(path: Path, content: str) -> list[str]:
     if not non_blank:
         return []
 
-    comment_count = sum(
-        1 for line in non_blank if line.startswith(_JAVA_COMMENT_PREFIXES)
+    code_count = sum(
+        1 for line in non_blank if not line.startswith(_JAVA_COMMENT_PREFIXES)
     )
-    if comment_count / len(non_blank) >= COMMENT_THRESHOLD:
+    if code_count / len(non_blank) <= ACTIVE_CODE_THRESHOLD:
         return ["commented"]
 
     return []
