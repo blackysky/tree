@@ -3,8 +3,6 @@
 A lightweight Python CLI tool that inspects a project directory, detects its development
 environment, and writes an annotated file tree to an output file.
 
----
-
 ## Why this tool exists
 
 Per-project tree scripts tend to accumulate in repositories and diverge over
@@ -29,18 +27,12 @@ code review.
 
 ## Supported environments
 
-| Environment | Detected by                                                          | Included extensions                                           | Annotations                                                              |
-|-------------|----------------------------------------------------------------------|---------------------------------------------------------------|--------------------------------------------------------------------------|
-| Java        | `pom.xml`, `build.gradle`, `src/main/java`, `.java` files            | `.java` `.sql` `.properties` `.yaml` `.yml`                   | `[class]` `[interface]` `[enum]` `[record]` `[annotation]` `[commented]` |
-| Web         | `package.json`, `tsconfig.json`, `node_modules/`, `.ts`/`.tsx` files | `.tsx` `.ts` `.html` `.css` `.js` `.json` `.md` `.svg` `.png` | `[component]` `[hook]`                                                   |
-| Unknown     | fallback when no confident match is found                            | `.py` `.js` `.ts` `.java` `.md` `.txt` `.yml` `.yaml` `.json` | none                                                                     |
+Java and Web.
 
 Detection is heuristic. Each clue contributes a weighted score. A result is
 reported as confident only when one environment's score exceeds the other by
 at least 2 points. Ambiguous or zero-score cases fall back to the Unknown
 profile with a warning printed to stderr.
-
----
 
 ## Quick start
 
@@ -177,14 +169,12 @@ When `--debug-detect` is combined with `--env`:
 Detection skipped: --env override was provided.
 ```
 
----
-
 ## Notes on heuristics
 
 Environment detection uses a fixed set of weighted clues evaluated against
 the project root. It is not guaranteed to be correct. If the detected
-environment looks wrong, pass `--env` to override it. Pass `--debug-detect`
-to see which clues fired and what scores were accumulated.
+environment looks wrong, pass `--env` to override it.    
+**Pass `--debug-detect` to see which clues fired and what scores were accumulated.**
 
 File annotations are heuristic classifiers, not static analysis.
 
@@ -214,33 +204,13 @@ File annotations are heuristic classifiers, not static analysis.
 Under the Web profile, `node_modules` is
 collapsed rather than excluded by default. Up to 20 entries are shown by
 name; if more exist, a summary line (`... N more entries`) is appended. The
-directory is never traversed for annotation purposes. Pass `--no-node-modules`
-to exclude it entirely and omit it from the output altogether.
-
----
-
-## Project structure
-
-```
-tree_cli.py          CLI entry point and orchestration
-tree/
-    shared_types.py  Node dataclass; AnnotationRule type alias
-    config.py        Config dataclass; Environment and Confidence enums
-    profiles.py      EnvironmentProfile constants (JAVA, WEB, UNKNOWN)
-    detect.py        Heuristic environment detection
-    scan.py          Directory traversal and node construction
-    annotate.py      Annotation pipeline and rule implementations
-    render.py        Tree formatting and output writing
-```
-
-The normal pipeline is `detect -> scan -> annotate -> render`. When `--env` is
-provided, detection is skipped. `Config` is constructed once and never mutated.
-No global mutable state exists.
+directory is never traversed for annotation purposes.   
+**Pass `--no-node-modules` to exclude it entirely and omit it from the output altogether.**
 
 ## JSON output format
 
 When `--json` is active, the output is a hierarchical JSON document. The
-environment block always uses stable lowercase identifiers. `confidence` is
+environment block always uses lowercase identifiers. `confidence` is
 omitted when `--env` was used.
 
 ```json
@@ -284,7 +254,3 @@ omitted when `--env` was used.
   }
 }
 ```
-
-Node types: `"file"`, `"directory"`, `"summary"`. Optional fields: `"symlink": true`,
-`"collapsed": true` (for entries inside a collapsed directory). The plain-text
-output format is not affected by `--json`.
