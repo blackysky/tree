@@ -1,20 +1,4 @@
-"""
-Environment profiles - the single source of truth for all environment-specific rules.
-
-Each profile is a self-contained, fully self-describing constant. No profile inherits
-from another, and no shared global sets exist. Every profile explicitly declares its own
-excluded directories so that it remains correct in isolation.
-
-Import structure:
-  profiles.py  imports concrete rule functions directly from annotate.py.
-  annotate.py  imports AnnotationRule and Node from shared_types at runtime;
-               it references EnvironmentProfile only under TYPE_CHECKING,
-               so it does not import profiles.py at runtime.
-
-This means profiles.py -> annotate.py is a real runtime import, but
-annotate.py -> profiles.py is type-checker-only, keeping the graph acyclic.
-tree_cli.py performs no rule injection; profiles are fully assembled at import time.
-"""
+"""Environment profiles."""
 
 from __future__ import annotations
 
@@ -31,13 +15,7 @@ from tree.shared_types import AnnotationRule
 
 @dataclass(frozen=True)
 class EnvironmentProfile:
-    """
-    Immutable description of a development environment.
-
-    Drives all environment-specific behaviour in scan, annotate, and render.
-    Adding a new environment means adding a new constant here - nothing else changes
-    in scan.py or render.py.
-    """
+    """Environment settings."""
 
     name: str
     extensions: frozenset[str]
@@ -47,8 +25,6 @@ class EnvironmentProfile:
     annotation_rules: tuple[AnnotationRule, ...] = field(default_factory=tuple)
 
     def __post_init__(self) -> None:
-        # Enforce the architecture invariant: a directory is either excluded or
-        # collapsed - never both. Checked at construction time, not at runtime.
         overlap = self.excluded_dirs & self.collapsed_dirs
         if overlap:
             raise ValueError(
@@ -56,10 +32,6 @@ class EnvironmentProfile:
                 f"collapsed_dirs: {sorted(overlap)}"
             )
 
-
-# ---------------------------------------------------------------------------
-# Profile constants
-# ---------------------------------------------------------------------------
 
 JAVA_PROFILE = EnvironmentProfile(
     name="Java",
@@ -91,8 +63,6 @@ WEB_PROFILE = EnvironmentProfile(
     annotation_rules=(web_component_rule, web_hook_rule),
 )
 
-# node_modules is excluded entirely here - without environment context its
-# presence is noise rather than signal.
 UNKNOWN_PROFILE = EnvironmentProfile(
     name="Unknown",
     extensions=frozenset({
