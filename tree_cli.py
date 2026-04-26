@@ -1,15 +1,4 @@
-"""
-Tree - CLI entry point and orchestration layer.
-
-This file is intentionally thin. All non-trivial logic lives in the modules
-under tree/. This file resolves arguments, selects a profile, constructs
-Config, and calls the pipeline in sequence.
-
-Usage:
-    python tree_cli.py [--root PATH] [--env {java,web}] [--output PATH]
-                   [--ascii] [--exclude DIR] [--debug-detect]
-                   [--no-node-modules] [--json]
-"""
+"""CLI entry point."""
 
 from __future__ import annotations
 
@@ -43,8 +32,6 @@ def main() -> None:
         Path(args.output).resolve() if args.output else (root / default_filename).resolve()
     )
 
-    # Ensure the output parent directory exists before running the pipeline.
-    # The output file itself is created only at the final write step.
     try:
         output_path.parent.mkdir(parents=True, exist_ok=True)
     except OSError as e:
@@ -54,10 +41,6 @@ def main() -> None:
         frozenset(args.exclude) if args.exclude else frozenset()
     )
 
-    # If --env is provided, skip detection entirely and use the requested profile.
-    # A sentinel DetectionResult is constructed to satisfy Config's type contract;
-    # its values are never rendered because env_overridden=True causes the header
-    # to display "(manual override)" instead of the confidence label.
     if args.env is not None:
         if args.debug_detect:
             print("Detection skipped: --env override was provided.", file=sys.stderr)
@@ -77,9 +60,6 @@ def main() -> None:
         profile = _profile_for_detection(detection_result)
         env_overridden = False
 
-    # --no-node-modules: promote node_modules from collapsed to excluded.
-    # Both sets must be updated atomically via dataclasses.replace because
-    # EnvironmentProfile enforces disjointness between them in __post_init__.
     if args.no_node_modules:
         profile = dataclasses.replace(
             profile,
@@ -169,13 +149,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _print_debug_detect(result: DetectionResult) -> None:
-    """
-    Print detection detail to stderr.
-
-    Covers: per-environment scores, confidence level, and each clue that fired.
-    Called only when --debug-detect is active and detection actually ran.
-    Sentinel results (produced when --env is used) are never passed here.
-    """
+    """Print detection details."""
     print("Detection detail:", file=sys.stderr)
     print(f"  java score : {result.java_score}", file=sys.stderr)
     print(f"  web score  : {result.web_score}", file=sys.stderr)
@@ -189,25 +163,17 @@ def _print_debug_detect(result: DetectionResult) -> None:
 
 
 def _profile_for_name(name: str) -> EnvironmentProfile:
-    """Return the profile constant for an explicit --env value."""
+    """Return the profile for --env."""
     return {"java": JAVA_PROFILE, "web": WEB_PROFILE}[name]
 
 
 def _profile_for_detection(result: DetectionResult) -> EnvironmentProfile:
-    """
-    Select a profile based on detection result.
-
-    Emits a warning to stderr when confidence is not CONFIDENT so the user
-    knows they may want to pass --env. Never exits - the run continues with
-    the best available profile.
-    """
     if result.environment == Environment.JAVA and result.confidence == Confidence.CONFIDENT:
         return JAVA_PROFILE
 
     if result.environment == Environment.WEB and result.confidence == Confidence.CONFIDENT:
         return WEB_PROFILE
 
-    # LOW confidence or UNKNOWN environment: warn and fall back to UNKNOWN_PROFILE.
     if result.confidence == Confidence.LOW:
         print(
             f"Warning: environment detection is ambiguous "
