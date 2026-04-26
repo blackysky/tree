@@ -1,13 +1,4 @@
-"""
-Heuristic environment detection.
-
-Detection is evidence-based: a fixed list of named clues is evaluated against the
-project root, each contributing a weighted score to one environment. The decision
-function converts accumulated scores into a result with an explicit confidence level.
-
-Ambiguity is never resolved by tie-breaking - it is surfaced explicitly so the user
-can resolve it with --env if needed.
-"""
+"""Heuristic environment detection."""
 
 from __future__ import annotations
 
@@ -17,14 +8,8 @@ from typing import NamedTuple
 
 from tree.config import Confidence, Environment
 
-# The gap by which one environment's score must exceed another to be considered
-# confident. If the gap is below this threshold the result is LOW confidence.
 CONFIDENCE_GAP: int = 2
 
-
-# ---------------------------------------------------------------------------
-# Internal clue structure
-# ---------------------------------------------------------------------------
 
 class _Clue(NamedTuple):
     description: str
@@ -41,11 +26,7 @@ def _check_dir_at_root(root: Path, dirname: str) -> bool:
 
 
 def _has_extension_shallow(root: Path, suffix: str) -> bool:
-    """Return True if any file with the given suffix exists at root or one level deep.
-
-    Unreadable directories (e.g. ~/.Trash, system volumes, protected folders) are
-    silently skipped. Detection continues with whatever paths are accessible.
-    """
+    """Check for a suffix at root or one level down."""
     try:
         entries = list(root.iterdir())
     except OSError:
@@ -64,12 +45,6 @@ def _has_extension_shallow(root: Path, suffix: str) -> bool:
 
     return False
 
-
-# ---------------------------------------------------------------------------
-# Clue evaluators
-# Each returns a _Clue if the evidence is present, None otherwise.
-# The list is the authoritative registry - tunable without touching control flow.
-# ---------------------------------------------------------------------------
 
 def _clue_pom_xml(root: Path) -> _Clue | None:
     if _check_file_at_root(root, "pom.xml"):
@@ -119,7 +94,7 @@ def _clue_ts_tsx_files(root: Path) -> _Clue | None:
     return None
 
 
-# Ordered list of all clue evaluators. Add new clues here when extending environments.
+# Ordered list of all clue evaluators.
 _CLUES = (
     _clue_pom_xml,
     _clue_gradle,
@@ -132,18 +107,9 @@ _CLUES = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Result type
-# ---------------------------------------------------------------------------
-
 @dataclass(frozen=True)
 class DetectionResult:
-    """
-    Outcome of heuristic environment detection.
-
-    Retained in Config for use in the output header and for diagnostics.
-    Confidence reflects how decisive the evidence was, not how correct the result is.
-    """
+    """Detection result."""
 
     environment: Environment
     confidence: Confidence
@@ -152,17 +118,8 @@ class DetectionResult:
     clues_matched: tuple[str, ...]
 
 
-# ---------------------------------------------------------------------------
-# Detection entry point
-# ---------------------------------------------------------------------------
-
 def detect(root: Path) -> DetectionResult:
-    """
-    Evaluate all clues against the given root directory and return a DetectionResult.
-
-    Never breaks ties by picking arbitrarily - ambiguity is always reported as UNKNOWN
-    with LOW confidence so the caller can decide (e.g. prompt the user to pass --env).
-    """
+    """Detect the most likely environment for root."""
     scores: dict[Environment, int] = {
         Environment.JAVA: 0,
         Environment.WEB: 0,
@@ -189,7 +146,7 @@ def detect(root: Path) -> DetectionResult:
 
 
 def _decide(java_score: int, web_score: int, matched: list[str]) -> DetectionResult:
-    """Convert accumulated scores into a result with an explicit confidence level."""
+    """Turn scores into a detection result."""
     if java_score == 0 and web_score == 0:
         return DetectionResult(
             environment=Environment.UNKNOWN,
@@ -219,8 +176,6 @@ def _decide(java_score: int, web_score: int, matched: list[str]) -> DetectionRes
             clues_matched=tuple(matched),
         )
 
-    # Scores are equal, or the gap is below the confidence threshold.
-    # Ambiguity is surfaced explicitly - no arbitrary tie-breaking.
     return DetectionResult(
         environment=Environment.UNKNOWN,
         confidence=Confidence.LOW,
