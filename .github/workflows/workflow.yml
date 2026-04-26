@@ -1,0 +1,50 @@
+name: Python CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    name: Run on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-version: [ "3.10", "3.11", "3.12" ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff
+
+      - name: Run static checks (ruff)
+        run: |
+          ruff check .
+
+      - name: Check formatting
+        run: |
+          ruff format --check .
+
+      - name: Compile source
+        run: |
+          python -m compileall -q tree tree_cli.py
+
+      - name: Run CLI help
+        run: |
+          python tree_cli.py --help
+
+      - name: Run CLI end-to-end
+        run: |
+          python tree_cli.py --root . --output /tmp/Structure.txt --ascii
