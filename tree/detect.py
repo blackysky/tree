@@ -54,7 +54,7 @@ def _clue_pom_xml(root: Path) -> _Clue | None:
 
 def _clue_gradle(root: Path) -> _Clue | None:
     if _check_file_at_root(root, "build.gradle") or _check_file_at_root(
-            root, "build.gradle.kts"
+        root, "build.gradle.kts"
     ):
         return _Clue(
             "build.gradle / build.gradle.kts present at root", Environment.JAVA, 3

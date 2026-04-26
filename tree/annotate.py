@@ -67,7 +67,7 @@ _BINARY_EXTENSIONS: frozenset[str] = frozenset(
 
 
 def _build_dispatch_map(
-        rules: tuple[AnnotationRule, ...],
+    rules: tuple[AnnotationRule, ...],
 ) -> tuple[dict[str, tuple[AnnotationRule, ...]], tuple[AnnotationRule, ...]]:
     """Build a suffix-to-rules dispatch table."""
     relevant_suffixes: set[str] = set()
@@ -109,17 +109,17 @@ def annotate(nodes: list[Node], profile: EnvironmentProfile) -> list[Node]:
 
 def _is_eligible(node: Node) -> bool:
     return (
-            not node.is_dir
-            and not node.is_symlink
-            and not node.is_collapsed_entry
-            and not node.is_summary
+        not node.is_dir
+        and not node.is_symlink
+        and not node.is_collapsed_entry
+        and not node.is_summary
     )
 
 
 def _annotate_node(
-        node: Node,
-        dispatch: dict[str, tuple[AnnotationRule, ...]],
-        always_run: tuple[AnnotationRule, ...],
+    node: Node,
+    dispatch: dict[str, tuple[AnnotationRule, ...]],
+    always_run: tuple[AnnotationRule, ...],
 ) -> None:
     suffix = node.path.suffix
 
@@ -152,7 +152,7 @@ def _strip_comment_syntax(line: str) -> str:
     stripped = line.strip()
     for marker in ("//", "/*", "*/"):
         if stripped.startswith(marker):
-            stripped = stripped[len(marker):].strip()
+            stripped = stripped[len(marker) :].strip()
             break
     if stripped.startswith("*"):
         stripped = stripped[1:].strip()

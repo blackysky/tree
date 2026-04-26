@@ -171,14 +171,14 @@ def _profile_for_name(name: str) -> EnvironmentProfile:
 
 def _profile_for_detection(result: DetectionResult) -> EnvironmentProfile:
     if (
-            result.environment == Environment.JAVA
-            and result.confidence == Confidence.CONFIDENT
+        result.environment == Environment.JAVA
+        and result.confidence == Confidence.CONFIDENT
     ):
         return JAVA_PROFILE
 
     if (
-            result.environment == Environment.WEB
-            and result.confidence == Confidence.CONFIDENT
+        result.environment == Environment.WEB
+        and result.confidence == Confidence.CONFIDENT
     ):
         return WEB_PROFILE
 

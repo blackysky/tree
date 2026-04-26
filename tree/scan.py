@@ -13,10 +13,10 @@ COLLAPSED_DIR_DISPLAY_CAP: int = 20
 
 
 def scan(
-        root: Path,
-        profile: EnvironmentProfile,
-        output_path: Path,
-        extra_exclusions: frozenset[str],
+    root: Path,
+    profile: EnvironmentProfile,
+    output_path: Path,
+    extra_exclusions: frozenset[str],
 ) -> list[Node]:
     """Scan root and return nodes in display order."""
     resolved_output = output_path.resolve()
@@ -78,8 +78,8 @@ def scan(
             # This mirrors the treatment of symlink directories above.
             if not is_symlink:
                 if (
-                        name not in profile.special_files
-                        and child.suffix not in profile.extensions
+                    name not in profile.special_files
+                    and child.suffix not in profile.extensions
                 ):
                     continue
 
