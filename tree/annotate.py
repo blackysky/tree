@@ -40,12 +40,30 @@ _WEB_COMPONENT_EXTENSIONS: frozenset[str] = frozenset({".tsx"})
 
 _RULE_EXTENSION_MAP: dict[AnnotationRule, frozenset[str]]
 
-_BINARY_EXTENSIONS: frozenset[str] = frozenset({
-    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico",
-    ".woff", ".woff2", ".ttf", ".eot",
-    ".zip", ".tar", ".gz", ".jar", ".war", ".class",
-    ".pdf", ".exe", ".dll", ".so",
-})
+_BINARY_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+        ".ico",
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".eot",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".jar",
+        ".war",
+        ".class",
+        ".pdf",
+        ".exe",
+        ".dll",
+        ".so",
+    }
+)
 
 
 def _build_dispatch_map(
@@ -64,7 +82,8 @@ def _build_dispatch_map(
 
     dispatch: dict[str, tuple[AnnotationRule, ...]] = {
         suffix: tuple(
-            rule for rule in rules
+            rule
+            for rule in rules
             if (ext := _RULE_EXTENSION_MAP.get(rule)) is None or suffix in ext
         )
         for suffix in relevant_suffixes

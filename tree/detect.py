@@ -53,8 +53,12 @@ def _clue_pom_xml(root: Path) -> _Clue | None:
 
 
 def _clue_gradle(root: Path) -> _Clue | None:
-    if _check_file_at_root(root, "build.gradle") or _check_file_at_root(root, "build.gradle.kts"):
-        return _Clue("build.gradle / build.gradle.kts present at root", Environment.JAVA, 3)
+    if _check_file_at_root(root, "build.gradle") or _check_file_at_root(
+            root, "build.gradle.kts"
+    ):
+        return _Clue(
+            "build.gradle / build.gradle.kts present at root", Environment.JAVA, 3
+        )
     return None
 
 
@@ -90,7 +94,9 @@ def _clue_node_modules(root: Path) -> _Clue | None:
 
 def _clue_ts_tsx_files(root: Path) -> _Clue | None:
     if _has_extension_shallow(root, ".tsx") or _has_extension_shallow(root, ".ts"):
-        return _Clue(".tsx / .ts files found at root or one level deep", Environment.WEB, 2)
+        return _Clue(
+            ".tsx / .ts files found at root or one level deep", Environment.WEB, 2
+        )
     return None
 
 

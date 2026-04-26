@@ -41,12 +41,14 @@ def scan(
                 continue
 
             if os.path.islink(child):
-                nodes.append(Node(
-                    path=child,
-                    depth=depth + 1,
-                    is_dir=True,
-                    is_symlink=True,
-                ))
+                nodes.append(
+                    Node(
+                        path=child,
+                        depth=depth + 1,
+                        is_dir=True,
+                        is_symlink=True,
+                    )
+                )
                 continue
 
             if name in all_excluded:
@@ -75,18 +77,23 @@ def scan(
             # on whether the symlink filename happens to satisfy extension filters.
             # This mirrors the treatment of symlink directories above.
             if not is_symlink:
-                if name not in profile.special_files and child.suffix not in profile.extensions:
+                if (
+                        name not in profile.special_files
+                        and child.suffix not in profile.extensions
+                ):
                     continue
 
             retained.append((name, child, is_symlink))
 
         for name, child, is_symlink in sorted(retained):
-            nodes.append(Node(
-                path=child,
-                depth=depth + 1,
-                is_dir=False,
-                is_symlink=is_symlink,
-            ))
+            nodes.append(
+                Node(
+                    path=child,
+                    depth=depth + 1,
+                    is_dir=False,
+                    is_symlink=is_symlink,
+                )
+            )
 
     return nodes
 
@@ -115,23 +122,27 @@ def scan_collapsed(dir_path: Path, depth: int) -> list[Node]:
     nodes: list[Node] = []
 
     for entry in retained:
-        nodes.append(Node(
-            path=Path(entry.path),
-            depth=depth + 1,
-            is_dir=entry.is_dir(follow_symlinks=False),
-            is_symlink=entry.is_symlink(),
-            is_collapsed_entry=True,
-        ))
+        nodes.append(
+            Node(
+                path=Path(entry.path),
+                depth=depth + 1,
+                is_dir=entry.is_dir(follow_symlinks=False),
+                is_symlink=entry.is_symlink(),
+                is_collapsed_entry=True,
+            )
+        )
 
     remainder = total - COLLAPSED_DIR_DISPLAY_CAP
     if remainder > 0:
-        nodes.append(Node(
-            path=dir_path,
-            depth=depth + 1,
-            is_dir=False,
-            is_summary=True,
-            summary_label=f"… {remainder} more entries",
-        ))
+        nodes.append(
+            Node(
+                path=dir_path,
+                depth=depth + 1,
+                is_dir=False,
+                is_summary=True,
+                summary_label=f"… {remainder} more entries",
+            )
+        )
 
     return nodes
 

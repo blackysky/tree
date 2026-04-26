@@ -37,45 +37,102 @@ JAVA_PROFILE = EnvironmentProfile(
     name="Java",
     extensions=frozenset({".java", ".sql", ".properties", ".yaml", ".yml"}),
     special_files=frozenset({"pom.xml"}),
-    excluded_dirs=frozenset({
-        "target", ".mvn", ".git", ".idea", ".vscode",
-        "__pycache__", ".venv", "venv", "env",
-        ".mypy_cache", ".ruff_cache", ".pytest_cache", ".tox",
-    }),
+    excluded_dirs=frozenset(
+        {
+            "target",
+            ".mvn",
+            ".git",
+            ".idea",
+            ".vscode",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".tox",
+        }
+    ),
     collapsed_dirs=frozenset(),
     annotation_rules=(java_type_rule, java_comment_rule),
 )
 
 WEB_PROFILE = EnvironmentProfile(
     name="Web",
-    extensions=frozenset({
-        ".tsx", ".ts", ".html", ".css", ".js",
-        ".png", ".svg", ".json", ".md",
-    }),
+    extensions=frozenset(
+        {
+            ".tsx",
+            ".ts",
+            ".html",
+            ".css",
+            ".js",
+            ".png",
+            ".svg",
+            ".json",
+            ".md",
+        }
+    ),
     special_files=frozenset({"package.json", "tsconfig.json"}),
-    excluded_dirs=frozenset({
-        ".next", "dist", "build", ".nuxt", ".cache",
-        ".git", ".idea", ".vscode",
-        "__pycache__", ".venv", "venv", "env",
-        ".mypy_cache", ".ruff_cache", ".pytest_cache", ".tox",
-    }),
+    excluded_dirs=frozenset(
+        {
+            ".next",
+            "dist",
+            "build",
+            ".nuxt",
+            ".cache",
+            ".git",
+            ".idea",
+            ".vscode",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".tox",
+        }
+    ),
     collapsed_dirs=frozenset({"node_modules"}),
     annotation_rules=(web_component_rule, web_hook_rule),
 )
 
 UNKNOWN_PROFILE = EnvironmentProfile(
     name="Unknown",
-    extensions=frozenset({
-        ".py", ".js", ".ts", ".java", ".md", ".txt",
-        ".yml", ".yaml", ".json",
-    }),
+    extensions=frozenset(
+        {
+            ".py",
+            ".js",
+            ".ts",
+            ".java",
+            ".md",
+            ".txt",
+            ".yml",
+            ".yaml",
+            ".json",
+        }
+    ),
     special_files=frozenset(),
-    excluded_dirs=frozenset({
-        ".git", ".idea", ".vscode",
-        "__pycache__", ".venv", "venv", "env",
-        "node_modules", "target", "dist", "build",
-        ".mypy_cache", ".ruff_cache", ".pytest_cache", ".tox",
-    }),
+    excluded_dirs=frozenset(
+        {
+            ".git",
+            ".idea",
+            ".vscode",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "env",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            ".mypy_cache",
+            ".ruff_cache",
+            ".pytest_cache",
+            ".tox",
+        }
+    ),
     collapsed_dirs=frozenset(),
     annotation_rules=(),
 )

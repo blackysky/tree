@@ -151,10 +151,7 @@ def _build_tree(nodes: list[Node], config: Config) -> str:
         else:
             open_depths.add(depth)
 
-        prefix = "".join(
-            pipe if d in open_depths else space
-            for d in range(1, depth)
-        )
+        prefix = "".join(pipe if d in open_depths else space for d in range(1, depth))
 
         lines.append(prefix + (last if node_is_last else branch) + _format_label(node))
 
